@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Clay Enrichment Panel</title>
+  
+  <!-- Include CSS -->
+  <?!= include('SidebarCSS'); ?>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>Clay Enrichment</h1>
+      <div class="status-indicator" id="connectionStatus">
+        <span class="status-dot"></span>
+        <span class="status-text">Checking...</span>
+      </div>
+    </div>
+    
+    <!-- Tab Navigation -->
+    <div class="tab-nav">
+      <button class="tab-button active" onclick="showTab('setup')">Setup</button>
+      <button class="tab-button" onclick="showTab('enrich')">Enrich</button>
+      <button class="tab-button" onclick="showTab('templates')">Templates</button>
+      <button class="tab-button" onclick="showTab('history')">History</button>
+    </div>
+    
+    <!-- Tab Content -->
+    <div class="tab-content">
+      <!-- Setup Tab -->
+      <div id="setup-tab" class="tab-pane active">
+        <div class="section">
+          <h3>API Configuration</h3>
+          <div class="form-group">
+            <label for="apiKey">Anthropic API Key</label>
+            <div class="input-group">
+              <input type="password" id="apiKey" placeholder="sk-ant-..." class="form-control">
+              <button onclick="toggleApiKeyVisibility()" class="btn-icon">
+                <span id="toggleIcon">👁️</span>
+              </button>
+            </div>
+            <small class="help-text">Your API key is stored securely and never shared</small>
+          </div>
+          
+          <div class="form-group">
+            <label for="model">Model Selection</label>
+            <select id="model" class="form-control">
+              <optgroup label="Claude 4 Models (Latest)">
+                <option value="claude-opus-4-20250514">Claude 4 Opus (Most Capable)</option>
+                <option value="claude-sonnet-4-20250514">Claude 4 Sonnet (Best Balance)</option>
+              </optgroup>
+              <optgroup label="Claude 3.5 Models">
+                <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet (Previous Best)</option>
+                <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Fast & Efficient)</option>
+              </optgroup>
+              <optgroup label="Claude 3 Models">
+                <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+                <option value="claude-3-sonnet-20240229">Claude 3 Sonnet</option>
+                <option value="claude-3-haiku-20240307">Claude 3 Haiku (Most Economical)</option>
+              </optgroup>
+            </select>
+          </div>
+          
+          <button onclick="saveConfiguration()" class="btn btn-primary">Save Configuration</button>
+        </div>
+        
+        <div class="section">
+          <h3>Advanced Settings</h3>
+          <div class="form-group">
+            <label for="rateLimit">Rate Limit (requests/minute)</label>
+            <input type="number" id="rateLimit" min="1" max="60" value="10" class="form-control">
+          </div>
+          
+          <div class="form-group">
+            <label for="batchSize">Batch Size</label>
+            <input type="number" id="batchSize" min="1" max="100" value="50" class="form-control">
+          </div>
+          
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="enableCache" checked>
+              Enable response caching
+            </label>
+          </div>
+          
+          <div class="form-group">
+            <label>
+              <input type="checkbox" id="autoRetry" checked>
+              Auto-retry failed requests
+            </label>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Enrich Tab -->
+      <div id="enrich-tab" class="tab-pane">
+        <div class="section">
+          <h3>Quick Actions</h3>
+          <div id="currentSheetInfo" class="current-sheet-info">
+            <small>Current Sheet: <span id="currentSheetName">Loading...</span></small>
+          </div>
+          <div class="button-grid">
+            <button onclick="enrichCurrentSheet()" class="btn btn-action btn-primary">
+              <span class="icon">✨</span>
+              <span>Enrich Selected Rows</span>
+            </button>
+            <button onclick="enrichAllInCurrentSheet()" class="btn btn-action">
+              <span class="icon">🔄</span>
+              <span>Enrich All New Records</span>
+            </button>
+          </div>
+          <div class="button-grid" style="margin-top: 10px;">
+            <button onclick="enrichSelected('company')" class="btn btn-action btn-small">
+              <span class="icon">🏢</span>
+              <span>Companies Sheet</span>
+            </button>
+            <button onclick="enrichSelected('contact')" class="btn btn-action btn-small">
+              <span class="icon">👤</span>
+              <span>Contacts Sheet</span>
+            </button>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h3>Enrichment Options</h3>
+          <div class="form-group">
+            <label for="enrichmentTemplate">Template</label>
+            <select id="enrichmentTemplate" class="form-control" onchange="updateTemplateDescription()">
+              <option value="">Loading templates...</option>
+            </select>
+            <small id="templateDescription" class="help-text"></small>
+          </div>
+          
+          <div class="form-group">
+            <label>Filters</label>
+            <div class="checkbox-group">
+              <label>
+                <input type="checkbox" id="onlyNew" checked>
+                Only enrich new records
+              </label>
+              <label>
+                <input type="checkbox" id="skipComplete">
+                Skip already enriched
+              </label>
+              <label>
+                <input type="checkbox" id="retryFailed">
+                Retry failed enrichments
+              </label>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Progress Section -->
+        <div id="progressSection" class="section" style="display: none;">
+          <h3>Enrichment Progress</h3>
+          <div class="progress-bar">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+          <div class="progress-stats">
+            <span id="progressText">0 / 0</span>
+            <span id="progressPercent">0%</span>
+          </div>
+          <div id="progressDetails" class="progress-details"></div>
+          <button onclick="cancelEnrichment()" class="btn btn-secondary">Cancel</button>
+        </div>
+      </div>
+      
+      <!-- Templates Tab -->
+      <div id="templates-tab" class="tab-pane">
+        <div class="section">
+          <h3>Available Templates</h3>
+          <div class="template-filters">
+            <button class="filter-btn active" onclick="filterTemplates('all')">All</button>
+            <button class="filter-btn" onclick="filterTemplates('company')">Company</button>
+            <button class="filter-btn" onclick="filterTemplates('contact')">Contact</button>
+            <button class="filter-btn" onclick="filterTemplates('custom')">Custom</button>
+          </div>
+          <div id="templateList" class="template-list">
+            <!-- Templates will be loaded here -->
+          </div>
+          <button onclick="createNewTemplate()" class="btn btn-primary">Create New Template</button>
+        </div>
+      </div>
+      
+      <!-- History Tab -->
+      <div id="history-tab" class="tab-pane">
+        <div class="section">
+          <h3>Usage Analytics</h3>
+          <div class="stats-grid">
+            <div class="stat-card">
+              <div class="stat-value" id="totalRequests">0</div>
+              <div class="stat-label">Total Requests</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="successRate">0%</div>
+              <div class="stat-label">Success Rate</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="totalCost">$0.00</div>
+              <div class="stat-label">Estimated Cost</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-value" id="avgTime">0s</div>
+              <div class="stat-label">Avg. Time</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="section">
+          <h3>Recent Enrichments</h3>
+          <div id="historyList" class="history-list">
+            <!-- History items will be loaded here -->
+          </div>
+          <button onclick="exportHistory()" class="btn btn-secondary">Export History</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Footer -->
+    <div class="footer">
+      <button onclick="refreshData()" class="btn btn-small">Refresh</button>
+      <button onclick="showHelp()" class="btn btn-small">Help</button>
+    </div>
+  </div>
+  
+  <!-- Include JavaScript -->
+  <?!= include('SidebarJS'); ?>
+</body>
+</html>

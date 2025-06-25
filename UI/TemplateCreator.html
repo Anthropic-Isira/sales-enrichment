@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      max-width: 600px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 5px;
+      color: #333;
+    }
+    input, select, textarea {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+    textarea {
+      min-height: 150px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .field-list {
+      background: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 5px;
+    }
+    .field-item {
+      display: inline-block;
+      background: #1a73e8;
+      color: white;
+      padding: 4px 8px;
+      margin: 2px;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    .remove-field {
+      cursor: pointer;
+      margin-left: 5px;
+    }
+    .add-field-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 5px;
+    }
+    .add-field-group input {
+      flex: 1;
+    }
+    .add-field-group button {
+      white-space: nowrap;
+    }
+    button {
+      background: #1a73e8;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #1557b0;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .cancel-btn {
+      background: #666;
+    }
+    .cancel-btn:hover {
+      background: #555;
+    }
+    .help-text {
+      font-size: 12px;
+      color: #666;
+      margin-top: 3px;
+    }
+    .preview-section {
+      background: #f8f9fa;
+      border: 1px solid #e0e0e0;
+      border-radius: 4px;
+      padding: 15px;
+      margin-top: 20px;
+    }
+    .preview-title {
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+    .column-preview {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .column-item {
+      background: white;
+      border: 1px solid #ddd;
+      padding: 5px 10px;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    .error {
+      color: #d93025;
+      font-size: 12px;
+      margin-top: 5px;
+    }
+    .success {
+      color: #188038;
+      font-size: 12px;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+<body>
+  <h2>Create New Enrichment Template</h2>
+  
+  <form id="templateForm">
+    <div class="form-group">
+      <label for="templateName">Template Name</label>
+      <input type="text" id="templateName" placeholder="e.g., Executive Contact Finder" required>
+      <div class="help-text">This will be the name of your template and the sheet tab</div>
+    </div>
+    
+    <div class="form-group">
+      <label for="templateType">Template Type</label>
+      <select id="templateType" required>
+        <option value="">Select type...</option>
+        <option value="Company">Company</option>
+        <option value="Contact">Contact</option>
+        <option value="Custom">Custom</option>
+      </select>
+    </div>
+    
+    <div class="form-group">
+      <label for="description">Description</label>
+      <input type="text" id="description" placeholder="Brief description of what this template does" required>
+    </div>
+    
+    <div class="form-group">
+      <label for="promptTemplate">Prompt Template</label>
+      <textarea id="promptTemplate" placeholder="Enter your prompt here. Use {{variableName}} for dynamic values." required></textarea>
+      <div class="help-text">
+        Available variables: {{companyName}}, {{domain}}, {{firstName}}, {{lastName}}, {{companyDomain}}, {{jobTitle}}
+      </div>
+    </div>
+    
+    <div class="form-group">
+      <label>Required Input Fields</label>
+      <div class="field-list" id="requiredFieldsList"></div>
+      <div class="add-field-group">
+        <input type="text" id="newRequiredField" placeholder="Field name (e.g., companyName)">
+        <button type="button" onclick="addRequiredField()">Add Field</button>
+      </div>
+      <div class="help-text">These fields must be present in the source data</div>
+    </div>
+    
+    <div class="form-group">
+      <label>Output Fields (Columns)</label>
+      <div class="field-list" id="outputFieldsList"></div>
+      <div class="add-field-group">
+        <input type="text" id="newOutputField" placeholder="Column name (e.g., revenue)">
+        <button type="button" onclick="addOutputField()">Add Column</button>
+      </div>
+      <div class="help-text">These will become columns in the new sheet</div>
+    </div>
+    
+    <div class="form-group">
+      <label>
+        <input type="checkbox" id="useFieldPrompts" onchange="toggleFieldPrompts()">
+        Use separate prompts for each field (recommended for better accuracy)
+      </label>
+    </div>
+    
+    <div id="fieldPromptsSection" style="display: none;">
+      <div class="form-group">
+        <label>Field-Specific Prompts</label>
+        <div id="fieldPromptsList"></div>
+        <div class="help-text">Define a specific prompt for each output field</div>
+      </div>
+    </div>
+    
+    <div class="form-group">
+      <label for="model">AI Model</label>
+      <select id="model" required>
+        <option value="claude-sonnet-4-20250514">Claude 4 Sonnet (Recommended)</option>
+        <option value="claude-opus-4-20250514">Claude 4 Opus (Most Capable)</option>
+        <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+        <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Fast)</option>
+        <option value="claude-3-haiku-20240307">Claude 3 Haiku (Economical)</option>
+      </select>
+    </div>
+    
+    <div class="form-group">
+      <label for="maxTokens">Max Tokens</label>
+      <input type="number" id="maxTokens" value="2048" min="256" max="4096">
+      <div class="help-text">Higher values allow longer responses but cost more</div>
+    </div>
+    
+    <div class="form-group">
+      <label for="temperature">Temperature</label>
+      <input type="number" id="temperature" value="0.3" min="0" max="1" step="0.1">
+      <div class="help-text">Lower values (0-0.3) for factual data, higher (0.7-1) for creative tasks</div>
+    </div>
+    
+    <div class="preview-section">
+      <div class="preview-title">Sheet Preview</div>
+      <div>Sheet Name: <span id="sheetNamePreview">-</span></div>
+      <div class="column-preview" id="columnPreview">
+        <div class="column-item">ID</div>
+        <div class="column-item">Source Name</div>
+        <div class="column-item">Source Domain</div>
+      </div>
+    </div>
+    
+    <div id="statusMessage"></div>
+    
+    <div class="button-group">
+      <button type="submit" id="createBtn">Create Template & Sheet</button>
+      <button type="button" class="cancel-btn" onclick="google.script.host.close()">Cancel</button>
+    </div>
+  </form>
+
+  <script>
+    let requiredFields = [];
+    let outputFields = [];
+    
+    // Update preview as user types
+    document.getElementById('templateName').addEventListener('input', updatePreview);
+    document.getElementById('templateType').addEventListener('change', updatePreview);
+    
+    function updatePreview() {
+      const name = document.getElementById('templateName').value;
+      const type = document.getElementById('templateType').value;
+      
+      document.getElementById('sheetNamePreview').textContent = name || '-';
+      
+      // Update default fields based on type
+      const columnPreview = document.getElementById('columnPreview');
+      let baseColumns = ['<div class="column-item">ID</div>'];
+      
+      if (type === 'Company') {
+        baseColumns.push('<div class="column-item">Company Name</div>');
+        baseColumns.push('<div class="column-item">Domain</div>');
+      } else if (type === 'Contact') {
+        baseColumns.push('<div class="column-item">First Name</div>');
+        baseColumns.push('<div class="column-item">Last Name</div>');
+        baseColumns.push('<div class="column-item">Company</div>');
+      }
+      
+      // Add output fields
+      outputFields.forEach(field => {
+        baseColumns.push(`<div class="column-item">${field}</div>`);
+      });
+      
+      baseColumns.push('<div class="column-item">Enrichment Status</div>');
+      baseColumns.push('<div class="column-item">Last Enriched</div>');
+      
+      columnPreview.innerHTML = baseColumns.join('');
+    }
+    
+    function addRequiredField() {
+      const input = document.getElementById('newRequiredField');
+      const field = input.value.trim();
+      
+      if (field && !requiredFields.includes(field)) {
+        requiredFields.push(field);
+        updateFieldList('requiredFieldsList', requiredFields, 'required');
+        input.value = '';
+      }
+    }
+    
+    function addOutputField() {
+      const input = document.getElementById('newOutputField');
+      const field = input.value.trim();
+      
+      if (field && !outputFields.includes(field)) {
+        outputFields.push(field);
+        updateFieldList('outputFieldsList', outputFields, 'output');
+        input.value = '';
+        updatePreview();
+        updateFieldPrompts();
+      }
+    }
+    
+    function toggleFieldPrompts() {
+      const useFieldPrompts = document.getElementById('useFieldPrompts').checked;
+      document.getElementById('fieldPromptsSection').style.display = useFieldPrompts ? 'block' : 'none';
+      if (useFieldPrompts) {
+        updateFieldPrompts();
+      }
+    }
+    
+    function updateFieldPrompts() {
+      const container = document.getElementById('fieldPromptsList');
+      container.innerHTML = '';
+      
+      outputFields.forEach(field => {
+        const fieldDiv = document.createElement('div');
+        fieldDiv.className = 'field-prompt-item';
+        fieldDiv.style.marginBottom = '15px';
+        fieldDiv.innerHTML = `
+          <label style="font-weight: normal; color: #666;">${fieldToHeader(field)}</label>
+          <textarea id="prompt_${field}" rows="2" style="width: 100%; margin-top: 5px;" 
+            placeholder="Write a specific prompt for finding ${field}..."></textarea>
+        `;
+        container.appendChild(fieldDiv);
+      });
+    }
+    
+    function fieldToHeader(field) {
+      return field
+        .replace(/([A-Z])/g, ' $1')
+        .replace(/^./, str => str.toUpperCase())
+        .replace(/_/g, ' ')
+        .trim();
+    }
+    
+    function updateFieldList(listId, fields, type) {
+      const list = document.getElementById(listId);
+      list.innerHTML = fields.map(field => 
+        `<span class="field-item">${field} <span class="remove-field" onclick="removeField('${type}', '${field}')">×</span></span>`
+      ).join('');
+    }
+    
+    function removeField(type, field) {
+      if (type === 'required') {
+        requiredFields = requiredFields.filter(f => f !== field);
+        updateFieldList('requiredFieldsList', requiredFields, 'required');
+      } else {
+        outputFields = outputFields.filter(f => f !== field);
+        updateFieldList('outputFieldsList', outputFields, 'output');
+        updatePreview();
+        updateFieldPrompts();
+      }
+    }
+    
+    // Handle Enter key in field inputs
+    document.getElementById('newRequiredField').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addRequiredField();
+      }
+    });
+    
+    document.getElementById('newOutputField').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        addOutputField();
+      }
+    });
+    
+    // Form submission
+    document.getElementById('templateForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      
+      const templateData = {
+        name: document.getElementById('templateName').value,
+        type: document.getElementById('templateType').value,
+        description: document.getElementById('description').value,
+        promptTemplate: document.getElementById('promptTemplate').value,
+        requiredFields: requiredFields,
+        outputFields: outputFields,
+        modelSettings: {
+          model: document.getElementById('model').value,
+          maxTokens: parseInt(document.getElementById('maxTokens').value),
+          temperature: parseFloat(document.getElementById('temperature').value)
+        }
+      };
+      
+      // Add field prompts if enabled
+      if (document.getElementById('useFieldPrompts').checked) {
+        templateData.fieldPrompts = {};
+        outputFields.forEach(field => {
+          const promptValue = document.getElementById(`prompt_${field}`).value;
+          if (promptValue) {
+            templateData.fieldPrompts[field] = promptValue;
+          }
+        });
+      }
+      
+      // Validate
+      if (requiredFields.length === 0) {
+        showMessage('Please add at least one required field', 'error');
+        return;
+      }
+      
+      if (outputFields.length === 0) {
+        showMessage('Please add at least one output field', 'error');
+        return;
+      }
+      
+      // Disable form
+      document.getElementById('createBtn').disabled = true;
+      showMessage('Creating template and sheet...', 'success');
+      
+      // Submit to server
+      google.script.run
+        .withSuccessHandler(function(result) {
+          showMessage('Template created successfully! Sheet "' + result.sheetName + '" has been added.', 'success');
+          setTimeout(() => {
+            google.script.host.close();
+          }, 2000);
+        })
+        .withFailureHandler(function(error) {
+          showMessage('Error: ' + error.toString(), 'error');
+          document.getElementById('createBtn').disabled = false;
+        })
+        .createTemplateWithSheet(templateData);
+    });
+    
+    function showMessage(message, type) {
+      const statusEl = document.getElementById('statusMessage');
+      statusEl.textContent = message;
+      statusEl.className = type;
+    }
+  </script>
+</body>
+</html>

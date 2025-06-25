@@ -1,0 +1,605 @@
+<script>
+// Global variables
+let currentTab = 'setup';
+let enrichmentInProgress = false;
+let templates = [];
+let configuration = {};
+
+// Initialize on load
+document.addEventListener('DOMContentLoaded', function() {
+  loadConfiguration();
+  loadTemplates();
+  updateConnectionStatus();
+  loadStatistics();
+  getCurrentSheetInfo();
+});
+
+// Tab Management
+function showTab(tabName) {
+  // Update tab buttons
+  document.querySelectorAll('.tab-button').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  event.target.classList.add('active');
+  
+  // Update tab content
+  document.querySelectorAll('.tab-pane').forEach(pane => {
+    pane.classList.remove('active');
+  });
+  document.getElementById(`${tabName}-tab`).classList.add('active');
+  
+  currentTab = tabName;
+  
+  // Load tab-specific data
+  if (tabName === 'history') {
+    loadRecentHistory();
+  }
+}
+
+// Configuration Management
+function loadConfiguration() {
+  google.script.run
+    .withSuccessHandler(function(config) {
+      configuration = config;
+      
+      // Populate form fields
+      if (config.API_KEY) {
+        document.getElementById('apiKey').value = '••••••••••••';
+      }
+      document.getElementById('model').value = config.DEFAULT_MODEL || 'claude-sonnet-4-20250514';
+      document.getElementById('rateLimit').value = config.RATE_LIMIT || 10;
+      document.getElementById('batchSize').value = config.BATCH_SIZE || 50;
+      document.getElementById('enableCache').checked = config.ENABLE_CACHE !== false;
+      document.getElementById('autoRetry').checked = config.AUTO_RETRY !== false;
+    })
+    .withFailureHandler(showError)
+    .getConfiguration();
+}
+
+function saveConfiguration() {
+  const apiKeyField = document.getElementById('apiKey');
+  const apiKey = apiKeyField.value;
+  
+  // Only update API key if it's been changed
+  const configData = {
+    DEFAULT_MODEL: document.getElementById('model').value,
+    RATE_LIMIT: parseInt(document.getElementById('rateLimit').value),
+    BATCH_SIZE: parseInt(document.getElementById('batchSize').value),
+    ENABLE_CACHE: document.getElementById('enableCache').checked,
+    AUTO_RETRY: document.getElementById('autoRetry').checked
+  };
+  
+  if (apiKey && apiKey !== '••••••••••••') {
+    configData.API_KEY = apiKey;
+  }
+  
+  // Show loading
+  const saveBtn = event.target;
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving...';
+  
+  google.script.run
+    .withSuccessHandler(function() {
+      saveBtn.textContent = 'Saved!';
+      updateConnectionStatus();
+      setTimeout(() => {
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save Configuration';
+      }, 2000);
+    })
+    .withFailureHandler(function(error) {
+      showError(error);
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save Configuration';
+    })
+    .saveConfiguration(configData);
+}
+
+function toggleApiKeyVisibility() {
+  const apiKeyField = document.getElementById('apiKey');
+  const toggleIcon = document.getElementById('toggleIcon');
+  
+  if (apiKeyField.type === 'password') {
+    apiKeyField.type = 'text';
+    toggleIcon.textContent = '🙈';
+  } else {
+    apiKeyField.type = 'password';
+    toggleIcon.textContent = '👁️';
+  }
+}
+
+// Connection Status
+function updateConnectionStatus() {
+  const statusEl = document.getElementById('connectionStatus');
+  statusEl.className = 'status-indicator';
+  statusEl.querySelector('.status-text').textContent = 'Checking...';
+  
+  google.script.run
+    .withSuccessHandler(function(isValid) {
+      if (isValid) {
+        statusEl.classList.add('connected');
+        statusEl.querySelector('.status-text').textContent = 'Connected';
+      } else {
+        statusEl.classList.add('error');
+        statusEl.querySelector('.status-text').textContent = 'No API Key';
+      }
+    })
+    .withFailureHandler(function() {
+      statusEl.classList.add('error');
+      statusEl.querySelector('.status-text').textContent = 'Error';
+    })
+    .checkApiConnection();
+}
+
+// Template Management
+function loadTemplates() {
+  google.script.run
+    .withSuccessHandler(function(data) {
+      templates = data;
+      populateTemplateDropdown();
+      displayTemplates();
+    })
+    .withFailureHandler(showError)
+    .getAvailableTemplates();
+}
+
+function populateTemplateDropdown() {
+  const select = document.getElementById('enrichmentTemplate');
+  select.innerHTML = '<option value="">Select a template...</option>';
+  
+  // Group templates by type
+  const companyTemplates = templates.filter(t => t.type === 'Company');
+  const contactTemplates = templates.filter(t => t.type === 'Contact');
+  
+  if (companyTemplates.length > 0) {
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = 'Company Templates';
+    companyTemplates.forEach(template => {
+      const option = document.createElement('option');
+      option.value = template.id;
+      option.textContent = template.name;
+      optgroup.appendChild(option);
+    });
+    select.appendChild(optgroup);
+  }
+  
+  if (contactTemplates.length > 0) {
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = 'Contact Templates';
+    contactTemplates.forEach(template => {
+      const option = document.createElement('option');
+      option.value = template.id;
+      option.textContent = template.name;
+      optgroup.appendChild(option);
+    });
+    select.appendChild(optgroup);
+  }
+}
+
+function updateTemplateDescription() {
+  const templateId = document.getElementById('enrichmentTemplate').value;
+  const descEl = document.getElementById('templateDescription');
+  
+  if (!templateId) {
+    descEl.textContent = '';
+    return;
+  }
+  
+  const template = templates.find(t => t.id === templateId);
+  if (template) {
+    descEl.textContent = template.description;
+  }
+}
+
+function displayTemplates(filter = 'all') {
+  const listEl = document.getElementById('templateList');
+  listEl.innerHTML = '';
+  
+  let filtered = templates;
+  if (filter === 'company') {
+    filtered = templates.filter(t => t.type === 'Company');
+  } else if (filter === 'contact') {
+    filtered = templates.filter(t => t.type === 'Contact');
+  } else if (filter === 'custom') {
+    filtered = templates.filter(t => t.id.startsWith('custom-'));
+  }
+  
+  filtered.forEach(template => {
+    const item = document.createElement('div');
+    item.className = 'template-item';
+    item.innerHTML = `
+      <h4>${template.name}
+        <span class="template-badge">${template.type}</span>
+      </h4>
+      <p>${template.description}</p>
+    `;
+    item.onclick = () => selectTemplate(template);
+    listEl.appendChild(item);
+  });
+}
+
+function filterTemplates(filter) {
+  // Update filter buttons
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  event.target.classList.add('active');
+  
+  // Display filtered templates
+  displayTemplates(filter);
+}
+
+function selectTemplate(template) {
+  // Update UI
+  document.querySelectorAll('.template-item').forEach(item => {
+    item.classList.remove('selected');
+  });
+  event.target.closest('.template-item').classList.add('selected');
+  
+  // Show template details or edit options
+  console.log('Selected template:', template);
+}
+
+// Enrichment Functions
+function enrichSelected(type) {
+  if (enrichmentInProgress) {
+    alert('An enrichment is already in progress. Please wait for it to complete.');
+    return;
+  }
+  
+  const templateId = document.getElementById('enrichmentTemplate').value;
+  if (!templateId) {
+    alert('Please select an enrichment template first.');
+    showTab('enrich');
+    return;
+  }
+  
+  const options = {
+    templateId: templateId,
+    onlyNew: document.getElementById('onlyNew').checked,
+    skipComplete: document.getElementById('skipComplete').checked,
+    retryFailed: document.getElementById('retryFailed').checked
+  };
+  
+  enrichmentInProgress = true;
+  showProgress();
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      enrichmentInProgress = false;
+      hideProgress();
+      showEnrichmentResults(result);
+    })
+    .withFailureHandler(function(error) {
+      enrichmentInProgress = false;
+      hideProgress();
+      showError(error);
+    })
+    .enrichSelectedEntities(type, options);
+}
+
+function enrichAll(type) {
+  if (enrichmentInProgress) {
+    alert('An enrichment is already in progress. Please wait for it to complete.');
+    return;
+  }
+  
+  const templateId = document.getElementById('enrichmentTemplate').value;
+  if (!templateId) {
+    alert('Please select an enrichment template first.');
+    return;
+  }
+  
+  if (!confirm(`Are you sure you want to enrich all new ${type === 'company' ? 'companies' : 'contacts'}?`)) {
+    return;
+  }
+  
+  const options = {
+    templateId: templateId,
+    onlyNew: true,
+    skipComplete: document.getElementById('skipComplete').checked,
+    retryFailed: document.getElementById('retryFailed').checked
+  };
+  
+  enrichmentInProgress = true;
+  showProgress();
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      enrichmentInProgress = false;
+      hideProgress();
+      showEnrichmentResults(result);
+    })
+    .withFailureHandler(function(error) {
+      enrichmentInProgress = false;
+      hideProgress();
+      showError(error);
+    })
+    .enrichAllEntities(type, options);
+}
+
+function cancelEnrichment() {
+  if (confirm('Are you sure you want to cancel the enrichment?')) {
+    enrichmentInProgress = false;
+    hideProgress();
+  }
+}
+
+// Progress Display
+function showProgress() {
+  document.getElementById('progressSection').style.display = 'block';
+  updateProgress(0, 0);
+}
+
+function hideProgress() {
+  document.getElementById('progressSection').style.display = 'none';
+}
+
+function updateProgress(current, total) {
+  const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+  
+  document.getElementById('progressFill').style.width = percent + '%';
+  document.getElementById('progressText').textContent = `${current} / ${total}`;
+  document.getElementById('progressPercent').textContent = percent + '%';
+}
+
+function showEnrichmentResults(result) {
+  const message = `
+Enrichment Complete!
+
+Total Processed: ${result.total}
+Successful: ${result.successful}
+Failed: ${result.failed}
+${result.emailsFound !== undefined ? `Emails Found: ${result.emailsFound}` : ''}
+${result.averageConfidence !== undefined ? `Average Confidence: ${result.averageConfidence}%` : ''}
+
+Estimated Cost: $${result.estimatedCost ? result.estimatedCost.toFixed(4) : '0.00'}
+  `;
+  
+  alert(message);
+  
+  // Refresh statistics
+  loadStatistics();
+}
+
+// Statistics
+function loadStatistics() {
+  google.script.run
+    .withSuccessHandler(function(stats) {
+      document.getElementById('totalRequests').textContent = stats.totalRequests || '0';
+      document.getElementById('successRate').textContent = stats.successRate ? stats.successRate + '%' : '0%';
+      document.getElementById('totalCost').textContent = '$' + (stats.totalCost || 0).toFixed(2);
+      document.getElementById('avgTime').textContent = stats.avgTime ? stats.avgTime + 's' : '0s';
+    })
+    .withFailureHandler(showError)
+    .getEnrichmentStatistics();
+}
+
+function loadRecentHistory() {
+  const listEl = document.getElementById('historyList');
+  listEl.innerHTML = '<div class="loading">Loading history...</div>';
+  
+  google.script.run
+    .withSuccessHandler(function(history) {
+      listEl.innerHTML = '';
+      
+      if (history.length === 0) {
+        listEl.innerHTML = '<div class="history-item">No enrichment history yet.</div>';
+        return;
+      }
+      
+      history.slice(0, 20).forEach(item => {
+        const itemEl = document.createElement('div');
+        itemEl.className = 'history-item';
+        
+        const statusClass = item.status === 'Complete' ? 'success' : 'failed';
+        const time = new Date(item.timestamp).toLocaleString();
+        
+        itemEl.innerHTML = `
+          <div>${item.entityType} - ${item.templateUsed}</div>
+          <div class="history-time">${time}</div>
+          <span class="history-status ${statusClass}">${item.status}</span>
+        `;
+        
+        listEl.appendChild(itemEl);
+      });
+    })
+    .withFailureHandler(showError)
+    .getEnrichmentHistory();
+}
+
+// Utility Functions
+function refreshData() {
+  loadConfiguration();
+  loadTemplates();
+  updateConnectionStatus();
+  loadStatistics();
+  
+  if (currentTab === 'history') {
+    loadRecentHistory();
+  }
+}
+
+function showHelp() {
+  const helpText = `
+Clay Enrichment Help
+
+1. Setup: Configure your Anthropic API key and model preferences
+2. Select entities in your spreadsheet
+3. Choose an enrichment template
+4. Click "Enrich Selected" to process
+
+Templates:
+- Company Overview: Get comprehensive company information
+- Contact Finder: Find professional contact details
+- Technology Stack: Identify tools and technologies used
+- And more...
+
+Tips:
+- Use batch enrichment for better performance
+- Enable caching to reduce API costs
+- Check the History tab for usage analytics
+  `;
+  
+  alert(helpText);
+}
+
+function showError(error) {
+  console.error('Error:', error);
+  alert('Error: ' + error.toString());
+}
+
+function exportHistory() {
+  google.script.run
+    .withSuccessHandler(function(url) {
+      window.open(url, '_blank');
+    })
+    .withFailureHandler(showError)
+    .exportEnrichmentHistory();
+}
+
+function createNewTemplate() {
+  // Close sidebar and open template creator
+  google.script.run
+    .withSuccessHandler(function() {
+      google.script.host.close();
+    })
+    .withFailureHandler(showError)
+    .showTemplateCreatorFromSidebar();
+}
+
+// Auto-save draft enrichment settings
+function saveDraftSettings() {
+  const settings = {
+    templateId: document.getElementById('enrichmentTemplate').value,
+    onlyNew: document.getElementById('onlyNew').checked,
+    skipComplete: document.getElementById('skipComplete').checked,
+    retryFailed: document.getElementById('retryFailed').checked
+  };
+  
+  localStorage.setItem('enrichmentDraftSettings', JSON.stringify(settings));
+}
+
+// Load draft settings on startup
+function loadDraftSettings() {
+  const saved = localStorage.getItem('enrichmentDraftSettings');
+  if (saved) {
+    try {
+      const settings = JSON.parse(saved);
+      document.getElementById('enrichmentTemplate').value = settings.templateId || '';
+      document.getElementById('onlyNew').checked = settings.onlyNew !== false;
+      document.getElementById('skipComplete').checked = settings.skipComplete || false;
+      document.getElementById('retryFailed').checked = settings.retryFailed || false;
+      updateTemplateDescription();
+    } catch (e) {
+      console.error('Failed to load draft settings:', e);
+    }
+  }
+}
+
+// Add event listeners for auto-save
+document.getElementById('enrichmentTemplate').addEventListener('change', saveDraftSettings);
+document.getElementById('onlyNew').addEventListener('change', saveDraftSettings);
+document.getElementById('skipComplete').addEventListener('change', saveDraftSettings);
+document.getElementById('retryFailed').addEventListener('change', saveDraftSettings);
+
+// Load draft settings on startup
+loadDraftSettings();
+
+// Get current sheet information
+function getCurrentSheetInfo() {
+  google.script.run
+    .withSuccessHandler(function(info) {
+      document.getElementById('currentSheetName').textContent = info.sheetName || 'Unknown';
+      
+      // Update UI based on sheet type
+      if (info.template) {
+        // This is a template-based sheet
+        document.getElementById('currentSheetName').textContent = 
+          info.sheetName + ' (' + info.template.type + ')';
+      }
+    })
+    .withFailureHandler(function(error) {
+      document.getElementById('currentSheetName').textContent = 'Error loading';
+    })
+    .getCurrentSheetInfo();
+}
+
+// Enrich current sheet regardless of type
+function enrichCurrentSheet() {
+  if (enrichmentInProgress) {
+    alert('An enrichment is already in progress. Please wait for it to complete.');
+    return;
+  }
+  
+  const templateId = document.getElementById('enrichmentTemplate').value;
+  if (!templateId) {
+    alert('Please select an enrichment template first.');
+    return;
+  }
+  
+  const options = {
+    templateId: templateId,
+    onlyNew: document.getElementById('onlyNew').checked,
+    skipComplete: document.getElementById('skipComplete').checked,
+    retryFailed: document.getElementById('retryFailed').checked
+  };
+  
+  enrichmentInProgress = true;
+  showProgress();
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      enrichmentInProgress = false;
+      hideProgress();
+      showEnrichmentResults(result);
+    })
+    .withFailureHandler(function(error) {
+      enrichmentInProgress = false;
+      hideProgress();
+      showError(error);
+    })
+    .enrichCurrentSheetSelection(options);
+}
+
+// Enrich all new records in current sheet
+function enrichAllInCurrentSheet() {
+  if (enrichmentInProgress) {
+    alert('An enrichment is already in progress. Please wait for it to complete.');
+    return;
+  }
+  
+  const templateId = document.getElementById('enrichmentTemplate').value;
+  if (!templateId) {
+    alert('Please select an enrichment template first.');
+    return;
+  }
+  
+  if (!confirm('This will enrich all pending records in the current sheet. Continue?')) {
+    return;
+  }
+  
+  const options = {
+    templateId: templateId,
+    onlyNew: true,
+    skipComplete: true,
+    retryFailed: document.getElementById('retryFailed').checked
+  };
+  
+  enrichmentInProgress = true;
+  showProgress();
+  
+  google.script.run
+    .withSuccessHandler(function(result) {
+      enrichmentInProgress = false;
+      hideProgress();
+      showEnrichmentResults(result);
+    })
+    .withFailureHandler(function(error) {
+      enrichmentInProgress = false;
+      hideProgress();
+      showError(error);
+    })
+    .enrichAllInCurrentSheet(options);
+}
+</script>
